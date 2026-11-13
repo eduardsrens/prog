@@ -1,730 +1,920 @@
-"""A minimal desktop maze solver. Run: python3 maze_visualizer.py"""
-
-import argparse
-import heapq
-import itertools
-import random
-import time
-import tkinter as tk
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
-
-BG = "#f5f5f2"
-PANEL = "#ffffff"
-BORDER = "#ddded9"
-TEXT = "#303432"
-MUTED = "#7a7f7b"
-ACCENT = "#26964c"
-COLORS = {
-    "wall": "#3d4341", "floor": "#ffffff", "visited": "#9bc9f0",
-    "frontier": "#328bd4", "current": "#f28a28", "path": "#42b85d",
-    "preview": "#e8b632", "start": "#505f59", "finish": "#505f59",
-}
-ALGORITHMS = ("BFS", "DFS", "A*")
+import random
+import time
+import tkinter as tk
+from tkinter import messagebox, ttk
 
 
-
-def read_maze(file):
-    maze = Path(file).read_text(encoding="utf-8-sig").splitlines()
-    validate_maze(maze)
-    return maze
-
-
-def validate_maze(maze):
-    if not maze or not maze[0] or any(len(row) != len(maze[0]) for row in maze):
-        raise ValueError("The maze must be rectangular, with equally sized rows.")
-    if len(maze) > 101 or len(maze[0]) > 151:
-        raise ValueError("Please use a maze no larger than 101 rows by 151 columns.")
-    cells = "".join(maze)
-    if any(cell not in "# AB" for cell in cells):
-        raise ValueError("Allowed characters: # (wall), space, A (start), B (goal).")
-    if cells.count("A") != 1 or cells.count("B") != 1:
-        raise ValueError("The maze needs exactly one A and one B.")
+CELL_SIZE = 24
+MAX_CELL_SIZE = 32
+MIN_CELL_SIZE = 8
+WALL_COLOR = "#111a30"
+WALL_TILE_COLOR = "#1b2945"
+FLOOR_COLOR = "#0b1224"
+PATH_COLOR = "#123557"
+ACCENT_COLOR = "#5eead4"
 
 
-def generate_maze(rows=25, columns=41, loops=False, seed=None):
-    rng = random.Random(seed)
-    grid = [["#"] * columns for _ in range(rows)]
-    grid[1][1] = " "
-    stack = [(1, 1)]
+@dataclass
+class LocalPlayer:
+    name: str
+    color: str
+    keys: dict[str, tuple[int, int]]
+    position: tuple[int, int]
+    score: int = 0
+    finished: bool = False
+    finish_time: float | None = None
+    sprite_items: tuple[int, int] = (0, 0)
+
+
+PLAYER_PRESETS = (
+    ("1. spēlētājs", "#facc15", {"up": (-1, 0), "down": (1, 0), "left": (0, -1), "right": (0, 1)}),
+    ("2. spēlētājs", "#fb7185", {"w": (-1, 0), "s": (1, 0), "a": (0, -1), "d": (0, 1)}),
+    ("3. spēlētājs", "#38bdf8", {"i": (-1, 0), "k": (1, 0), "j": (0, -1), "l": (0, 1)}),
+    ("4. spēlētājs", "#c084fc", {"t": (-1, 0), "g": (1, 0), "f": (0, -1), "h": (0, 1)}),
+)
+
+
+def generate_maze(rows: int = 41, columns: int = 81) -> tuple[list[str], tuple[int, int], tuple[int, int]]:
+    """Izveido lielu nejaušu savienotu labirintu un atver tajā papildu ceļus."""
+    if rows < 5 or columns < 5 or rows % 2 == 0 or columns % 2 == 0:
+        raise ValueError("Labirinta izmēriem jābūt nepāra skaitļiem, kas nav mazāki par 5.")
+
+    grid = [["#" for _ in range(columns)] for _ in range(rows)]
+    start_node = (1, 1)
+    visited = {start_node}
+    stack = [start_node]
+    grid[start_node[0]][start_node[1]] = " "
+    directions = ((-2, 0), (2, 0), (0, -2), (0, 2))
+    generator = random.Random(time.time_ns())
+
     while stack:
-        r, c = stack[-1]
-        choices = [(r + dr, c + dc) for dr, dc in ((0, 2), (2, 0), (0, -2), (-2, 0))
-                   if 0 < r + dr < rows - 1 and 0 < c + dc < columns - 1
-                   and grid[r + dr][c + dc] == "#"]
-        if not choices:
+        y, x = stack[-1]
+        neighbors = [
+            (y + dy, x + dx, dy, dx)
+            for dy, dx in directions
+            if 1 <= y + dy < rows - 1
+            and 1 <= x + dx < columns - 1
+            and (y + dy, x + dx) not in visited
+        ]
+        if not neighbors:
             stack.pop()
             continue
-        nr, nc = rng.choice(choices)
-        grid[(r + nr) // 2][(c + nc) // 2] = " "
-        grid[nr][nc] = " "
-        stack.append((nr, nc))
-    if loops:
-        for r in range(1, rows - 1):
-            for c in range(1, columns - 1):
-                if (r % 2 != c % 2 and grid[r][c] == "#" and rng.random() < .12):
-                    grid[r][c] = " "
-    grid[1][1], grid[-2][-2] = "A", "B"
-    return ["".join(row) for row in grid]
+
+        next_y, next_x, dy, dx = generator.choice(neighbors)
+        grid[y + dy // 2][x + dx // 2] = " "
+        grid[next_y][next_x] = " "
+        visited.add((next_y, next_x))
+        stack.append((next_y, next_x))
+
+    for y in range(1, rows - 1):
+        for x in range(1, columns - 1):
+            if grid[y][x] == "#" and generator.random() < 0.045:
+                vertical_passage = y % 2 == 0 and x % 2 == 1
+                horizontal_passage = y % 2 == 1 and x % 2 == 0
+                if vertical_passage and grid[y - 1][x] == " " and grid[y + 1][x] == " ":
+                    grid[y][x] = " "
+                elif horizontal_passage and grid[y][x - 1] == " " and grid[y][x + 1] == " ":
+                    grid[y][x] = " "
+
+    start = (1, 1)
+    goal = (rows - 2, columns - 2)
+    grid[start[0]][start[1]] = "A"
+    grid[goal[0]][goal[1]] = "B"
+    return ["".join(row) for row in grid], start, goal
 
 
-class Search:
-    """Each step expands one cell independently of the interface."""
+def find_path(maze: list[str], start: tuple[int, int], goal: tuple[int, int]) -> list[tuple[int, int]] | None:
+    """Atrod īsāko ceļu no A līdz B, izmantojot platuma meklēšanu."""
+    rindas = len(maze)
+    kolonnas = len(maze[0])
+    rinda = deque([start])
+    ieprieksejais = {start: None}
 
-    def __init__(self, maze, algorithm, explore_all=False):
-        self.changes = []
-        self.maze = maze
-        self.algorithm = algorithm
-        self.explore_all = explore_all
-        self.start = next((r, c) for r, row in enumerate(maze)
-                          for c, value in enumerate(row) if value == "A")
-        self.finish = next((r, c) for r, row in enumerate(maze)
-                           for c, value in enumerate(row) if value == "B")
-        self.parents = {self.start: None}
-        self.costs = {self.start: 0}
-        self.visited = set()
-        self.frontier = {self.start}
-        self.queue = deque([self.start])
-        self.counter = itertools.count()
-        self.heap = [(0, next(self.counter), self.start)]
-        self.current = None
-        self.done = False
-        self.path = []
+    while rinda:
+        pozicija = rinda.popleft()
+        if pozicija == goal:
+            break
 
-    def route_to(self, cell):
-        route = []
-        while cell is not None:
-            route.append(cell)
-            cell = self.parents[cell]
-        return route[::-1]
-
-    def step(self):
-        self.changes = []
-        if self.done:
-            return
-        if not self.frontier:
-            self.done = True
-            self.current = None
-            return
-        if self.algorithm == "A*":
-            while True:
-                _, _, cell = heapq.heappop(self.heap)
-                if cell not in self.visited:
-                    break
-        elif self.algorithm == "DFS":
-            cell = self.queue.pop()
-        else:
-            cell = self.queue.popleft()
-        self.frontier.remove(cell)
-        self.visited.add(cell)
-        self.current = cell
-        if cell == self.finish:
-            self.path = self.route_to(cell)
-            if not self.explore_all:
-                self.done = True
-                return
-        r, c = cell
-        for dr, dc in ((0, 1), (1, 0), (0, -1), (-1, 0)):
-            neighbor = nr, nc = r + dr, c + dc
-            if not (0 <= nr < len(self.maze) and 0 <= nc < len(self.maze[0])):
+        y, x = pozicija
+        kaimini = ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1))
+        for kaimins_y, kaimins_x in kaimini:
+            kaimins = (kaimins_y, kaimins_x)
+            if not (0 <= kaimins_y < rindas and 0 <= kaimins_x < kolonnas):
                 continue
-            if self.maze[nr][nc] == "#" or neighbor in self.visited:
+            if kaimins in ieprieksejais or maze[kaimins_y][kaimins_x] == "#":
                 continue
-            cost = self.costs[cell] + 1
-            if neighbor in self.parents:
-                if self.algorithm != "A*" or cost >= self.costs[neighbor]:
-                    continue
-            self.changes.append((neighbor, cell))
-            self.parents[neighbor] = cell
-            self.costs[neighbor] = cost
-            self.frontier.add(neighbor)
-            if self.algorithm == "A*":
-                distance = abs(nr - self.finish[0]) + abs(nc - self.finish[1])
-                heapq.heappush(self.heap, (cost + distance, next(self.counter), neighbor))
-            else:
-                self.queue.append(neighbor)
+            ieprieksejais[kaimins] = pozicija
+            rinda.append(kaimins)
+
+    if goal not in ieprieksejais:
+        return None
+
+    cela = []
+    pozicija = goal
+    while pozicija is not None:
+        cela.append(pozicija)
+        pozicija = ieprieksejais[pozicija]
+    return list(reversed(cela))
 
 
-@dataclass(frozen=True)
-class Frame:
-    cell: object
-    changes: tuple
+def find_paths(
+    maze: list[str],
+    start: tuple[int, int],
+    goal: tuple[int, int],
+    max_paths: int = 25,
+) -> tuple[list[list[tuple[int, int]]], bool]:
+    """Atrod dažādus vienkāršus ceļus; norāda, ja sasniegts ceļu skaita limits."""
+    def get_neighbors(position: tuple[int, int]) -> list[tuple[int, int]]:
+        y, x = position
+        neighbors = []
+        for neighbor_y, neighbor_x in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if (
+                0 <= neighbor_y < len(maze)
+                and 0 <= neighbor_x < len(maze[0])
+                and maze[neighbor_y][neighbor_x] != "#"
+            ):
+                neighbors.append((neighbor_y, neighbor_x))
+        return neighbors
+
+    paths: list[list[tuple[int, int]]] = []
+    current_path = [start]
+    visited = {start}
+    stack = [(start, iter(get_neighbors(start)))]
+
+    while stack:
+        position, neighbors = stack[-1]
+        if position == goal:
+            paths.append(current_path.copy())
+            if len(paths) > max_paths:
+                return paths[:max_paths], True
+            stack.pop()
+            visited.remove(position)
+            current_path.pop()
+            continue
+
+        try:
+            neighbor = next(neighbors)
+        except StopIteration:
+            stack.pop()
+            visited.remove(position)
+            current_path.pop()
+            continue
+
+        if neighbor not in visited:
+            visited.add(neighbor)
+            current_path.append(neighbor)
+            stack.append((neighbor, iter(get_neighbors(neighbor))))
+
+    paths.sort(key=len)
+    return paths, False
 
 
-class Replay:
-    """Compact event history: supports backward and forward playback without rerunning search."""
+def read_maze(file_path: Path) -> tuple[list[str], tuple[int, int], tuple[int, int]]:
+    maze = file_path.read_text(encoding="utf-8").splitlines()
+    if not maze or not maze[0]:
+        raise ValueError("Labirints ir tukšs.")
+    if any(len(row) != len(maze[0]) for row in maze):
+        raise ValueError("Visām labirinta rindām jābūt vienāda garuma.")
 
-    def __init__(self, maze, algorithm, explore_all=False):
-        started = time.perf_counter()
-        search = Search(maze, algorithm, explore_all)
-        self.start, self.finish = search.start, search.finish
-        self.frames = []
-        while not search.done:
-            search.step()
-            self.frames.append(Frame(search.current, tuple(search.changes)))
-        self.path = search.path
-        self.elapsed_ms = (time.perf_counter() - started) * 1000
-        self.total_visited = len(search.visited)
-        self.peak_frontier = 1
-        self.position = -1
-        self.seek(0)
-        for frame in self.frames:
-            self._apply(frame)
-            self.peak_frontier = max(self.peak_frontier, len(self.frontier))
-        self.position = -1
-        self.seek(0)
+    starts = [(y, x) for y, row in enumerate(maze) for x, cell in enumerate(row) if cell == "A"]
+    goals = [(y, x) for y, row in enumerate(maze) for x, cell in enumerate(row) if cell == "B"]
+    if len(starts) != 1 or len(goals) != 1:
+        raise ValueError("Labirintā jābūt tieši vienam sākuma punktam A un galapunktam B.")
+    if any(cell not in "# AB" for row in maze for cell in row):
+        raise ValueError("Labirints drīkst saturēt tikai sienas (#), tukšumus, A un B.")
 
-    @property
-    def length(self):
-        return len(self.frames) + len(self.path)
-
-    def _apply(self, frame):
-        self.current = frame.cell
-        if frame.cell is not None:
-            self.visited.add(frame.cell)
-            self.frontier.discard(frame.cell)
-        for cell, parent in frame.changes:
-            self.parents[cell] = parent
-            self.frontier.add(cell)
-
-    def seek(self, position):
-        position = max(0, min(int(position), self.length))
-        if self.position < 0 or position < self.position:
-            self.visited = set()
-            self.frontier = {self.start}
-            self.parents = {self.start: None}
-            self.current = None
-            self.position = 0
-        for index in range(min(self.position, len(self.frames)), min(position, len(self.frames))):
-            self._apply(self.frames[index])
-        self.position = position
-        self.visible_path = set(self.path[:max(0, position - len(self.frames))])
-
-    def route_to(self, cell):
-        path = []
-        while cell is not None:
-            path.append(cell)
-            cell = self.parents[cell]
-        return path[::-1]
+    return maze, starts[0], goals[0]
 
 
-class MazeWindow:
-    def __init__(self, root, file):
+class MazeVisualizer:
+    def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        root.title("Maze")
-        root.geometry("1040x800")
-        root.minsize(780, 620)
-        root.configure(bg=BG)
-        self.running = False
-        self.timer = None
-        self.maze = None
-        self.source = None
-        self.dirty = False
-        self.replays = {}
-        self.position = 0
-        self.painting = False
-        self.last_cell = None
-        self.preview_cell = None
-        self.boards = []
-        self.algorithm = tk.StringVar(value="BFS")
-        self.speed = tk.DoubleVar(value=90)
-        self.explore_all = tk.BooleanVar(value=False)
-        self.compare = tk.BooleanVar(value=False)
-        self.heatmap = tk.BooleanVar(value=False)
-        self.edit = tk.BooleanVar(value=False)
-        self.tool = tk.StringVar(value="Wall")
-        self.size = tk.StringVar(value="25 × 41")
-        self.loops = tk.BooleanVar(value=True)
-        self.file_label = tk.StringVar(value="")
-        self.status = tk.StringVar(value="Ready to explore")
-        self.hint = tk.StringVar(value="Click a visited cell to inspect its path.")
-        self._style()
-        self._build()
-        root.bind("<space>", self.on_space)
-        root.bind("<Left>", lambda event: self.step(-1))
-        root.bind("<Right>", lambda event: self.step(1))
-        root.bind("<Escape>", lambda event: self.pause())
-        root.bind("<Control-o>", lambda event: self.open_file())
-        root.bind("<Command-o>", lambda event: self.open_file())
-        root.bind("<Control-s>", lambda event: self.save_maze())
-        root.bind("<Command-s>", lambda event: self.save_maze())
-        root.protocol("WM_DELETE_WINDOW", self.close)
-        self.load(file)
+        self.root.title("MAZE RUNNER  /  Labirinta maršrutu vizualizācija")
+        self.root.geometry("1680x1000")
+        self.root.minsize(1050, 700)
+        self.root.state("zoomed")
+        self.root.configure(bg="#080d19")
+        self.style = ttk.Style(root)
+        self.style.theme_use("clam")
+        self.style.configure("TFrame", background="#080d19")
+        self.style.configure("Card.TFrame", background="#111a2b")
+        self.style.configure(
+            "TLabel",
+            background="#080d19",
+            foreground="#e6edf7",
+            font=("Segoe UI", 10),
+        )
+        self.style.configure(
+            "Muted.TLabel",
+            background="#080d19",
+            foreground="#8d9bb2",
+            font=("Segoe UI", 10),
+        )
+        self.style.configure(
+            "CardTitle.TLabel",
+            background="#111a2b",
+            foreground="#f2f6ff",
+            font=("Segoe UI Semibold", 11),
+        )
+        self.style.configure(
+            "TButton",
+            background="#1a2940",
+            foreground="#dce8f8",
+            font=("Segoe UI Semibold", 10),
+            padding=(13, 9),
+            borderwidth=0,
+        )
+        self.style.map(
+            "TButton",
+            background=[("active", "#263b59"), ("disabled", "#172235")],
+            foreground=[("disabled", "#66758b")],
+        )
+        self.style.configure(
+            "Accent.TButton",
+            background="#14b8a6",
+            foreground="#06141a",
+            font=("Segoe UI Semibold", 10),
+            padding=(15, 9),
+            borderwidth=0,
+        )
+        self.style.map("Accent.TButton", background=[("active", "#2dd4bf")])
+        self.style.configure(
+            "TCombobox",
+            fieldbackground="#0c1424",
+            background="#1a2940",
+            foreground="#e6edf7",
+            arrowcolor=ACCENT_COLOR,
+            padding=8,
+            borderwidth=0,
+        )
+        self.style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", "#0c1424")],
+            foreground=[("readonly", "#e6edf7")],
+        )
+        self.style.configure(
+            "Vertical.TScrollbar",
+            background="#24344d",
+            troughcolor="#0b1220",
+            bordercolor="#0b1220",
+            arrowcolor="#8d9bb2",
+        )
+        self.style.configure(
+            "Horizontal.TScrollbar",
+            background="#24344d",
+            troughcolor="#0b1220",
+            bordercolor="#0b1220",
+            arrowcolor="#8d9bb2",
+        )
+        self.maze_dir = Path(__file__).resolve().parent
+        self.maze_files = sorted(self.maze_dir.glob("maze_*.txt"))
+        if not self.maze_files:
+            raise FileNotFoundError(f"Mapē {self.maze_dir} nav atrasts neviens maze_*.txt fails.")
+        self.maze_choices: dict[str, Path | None] = {
+            file.name: file for file in self.maze_files
+        }
+        self.maze_choices["LIELAIS 41 × 81  ·  nejaušs"] = None
+        self.maze_choices["MILZĪGAIS 61 × 121  ·  nejaušs"] = None
 
-    def _style(self):
-        style = ttk.Style(self.root)
-        style.theme_use("aqua" if "aqua" in style.theme_names() else "clam")
-        style.configure("TFrame", background=BG)
-        style.configure("TLabel", background=BG, foreground=TEXT, font=("Helvetica", 11))
-        style.configure("Muted.TLabel", foreground=MUTED, font=("Helvetica", 10))
-        style.configure("TButton", padding=(8, 5), font=("Helvetica", 11))
-        style.configure("TCheckbutton", background=BG, foreground=TEXT)
-        style.configure("Horizontal.TScale", background=BG)
-        style.configure("Treeview", background=BG, fieldbackground=BG, foreground=TEXT,
-                        rowheight=26, borderwidth=0, font=("Helvetica", 10))
-        style.configure("Treeview.Heading", font=("Helvetica", 10))
+        self.maze: list[str] = []
+        self.start = (0, 0)
+        self.goal = (0, 0)
+        self.cell_rectangles: dict[tuple[int, int], int] = {}
+        self.path: list[tuple[int, int]] = []
+        self.paths: list[list[tuple[int, int]]] = []
+        self.path_index = 0
+        self.animation_id: str | None = None
+        self.resize_id: str | None = None
+        self.cell_size = CELL_SIZE
+        self.maze_offset_x = 0
+        self.maze_offset_y = 0
+        self.animation_progress = 0.0
+        self.animation_started = 0.0
+        self.is_animating = False
+        self.last_animated_index = -1
+        self.dot_items: dict[tuple[int, int], int] = {}
+        self.player_items: dict[str, int] = {}
+        self.ghost_items: list[dict[str, int]] = []
+        self.local_players: list[LocalPlayer] = []
+        self.game_active = False
+        self.game_started_at = 0.0
+        self.game_dot_items: dict[tuple[int, int], int] = {}
 
-    def _button(self, parent, text, command, accent=False):
-        return ttk.Button(parent, text=text, command=command)
-
-    def _combo(self, parent, variable, values, command=None, width=15):
-        box = ttk.Combobox(parent, textvariable=variable, values=values, state="readonly", width=width)
-        if command:
-            box.bind("<<ComboboxSelected>>", lambda event: command())
-        return box
-
-    def _build(self):
-        menu = tk.Menu(self.root)
-        self.root.configure(menu=menu)
-        file_menu = tk.Menu(menu, tearoff=False)
-        menu.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Open…", command=self.open_file)
-        file_menu.add_command(label="Save maze…", command=self.save_maze)
-        file_menu.add_command(label="Export solution…", command=self.export_path)
-        search_menu = tk.Menu(menu, tearoff=False)
-        menu.add_cascade(label="Search", menu=search_menu)
-        search_menu.add_checkbutton(label="Explore all branches", variable=self.explore_all, command=self.reset)
-        search_menu.add_checkbutton(label="Compare algorithms", variable=self.compare, command=self.change_view)
-        search_menu.add_checkbutton(label="Shade by distance", variable=self.heatmap, command=self.paint)
-        create_menu = tk.Menu(menu, tearoff=False)
-        menu.add_cascade(label="Maze", menu=create_menu)
-        create_menu.add_command(label="Generate new maze", command=self.generate)
-        sizes = tk.Menu(create_menu, tearoff=False)
-        create_menu.add_cascade(label="Size", menu=sizes)
-        for size in ("15 × 25", "25 × 41", "35 × 61", "51 × 81"):
-            sizes.add_radiobutton(label=size, variable=self.size, value=size)
-        create_menu.add_checkbutton(label="Include alternate routes", variable=self.loops)
-        create_menu.add_separator()
-        create_menu.add_checkbutton(label="Edit maze", variable=self.edit, command=self.edit_changed)
-
-        header = ttk.Frame(self.root, padding=(28, 18, 28, 12))
+        header = ttk.Frame(root, padding=(28, 22, 28, 14))
         header.pack(fill="x")
-        ttk.Label(header, textvariable=self.file_label).pack(side="left")
-        self._button(header, "Open…", self.open_file).pack(side="right")
-        self.editor_bar = ttk.Frame(self.root, padding=(28, 0, 28, 12))
-        ttk.Label(self.editor_bar, text="Draw").pack(side="left", padx=(0, 8))
-        self._combo(self.editor_bar, self.tool, ("Wall", "Eraser", "Start A", "Goal B"), width=10).pack(side="left")
-        ttk.Label(self.editor_bar, text="Drag to draw. Click to move A or B.", style="Muted.TLabel").pack(side="left", padx=12)
-        self._button(self.editor_bar, "Done", self.end_edit).pack(side="right")
-        self.content = ttk.Frame(self.root, padding=(28, 0, 28, 0))
-        self.content.pack(fill="both", expand=True)
-        self.canvas = tk.Canvas(self.content, bg=BG, highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True)
-        self.canvas.bind("<Configure>", lambda event: self.draw())
-        self.canvas.bind("<Button-1>", self.canvas_click)
-        self.canvas.bind("<B1-Motion>", self.canvas_drag)
-        self.canvas.bind("<ButtonRelease-1>", self.canvas_release)
-        legend = ttk.Frame(self.content, padding=(0, 12, 0, 6))
-        legend.pack(fill="x")
-        for color, text in (("visited", "Visited"), ("frontier", "Next"),
-                            ("path", "Solution"), ("preview", "Selected path")):
-            swatch = tk.Canvas(legend, width=8, height=8, bg=BG, highlightthickness=0)
-            swatch.create_rectangle(0, 0, 8, 8, fill=COLORS[color], outline="")
-            swatch.pack(side="left", padx=(0, 5))
-            ttk.Label(legend, text=text, style="Muted.TLabel").pack(side="left", padx=(0, 16))
-        self.results = ttk.Treeview(self.content, columns=("algorithm", "steps", "visited", "frontier", "time"),
-                                   show="headings", height=3, selectmode="none")
-        for column, title in (("algorithm", "Algorithm"), ("steps", "Path length"), ("visited", "Visited"),
-                              ("frontier", "Peak frontier"), ("time", "Time, ms")):
-            self.results.heading(column, text=title)
-            self.results.column(column, width=100, minwidth=70, anchor="center")
-        playback = ttk.Frame(self.root, padding=(28, 12, 28, 12))
-        playback.pack(fill="x")
-        self.play_button = self._button(playback, "Play", self.toggle)
-        self.play_button.pack(side="left")
-        self._button(playback, "Reset", self.rewind).pack(side="left", padx=(6, 16))
-        self._combo(playback, self.algorithm, ALGORITHMS, self.reset, width=5).pack(side="left")
-        self.timeline = ttk.Scale(playback, from_=0, to=1, command=self.scrub)
-        self.timeline.pack(side="left", fill="x", expand=True, padx=(16, 12))
-        ttk.Label(playback, text="Speed", style="Muted.TLabel").pack(side="left", padx=(4, 6))
-        ttk.Scale(playback, from_=5, to=600, variable=self.speed, length=90).pack(side="left")
-        footer = ttk.Frame(self.root, padding=(28, 0, 28, 18))
+        brand = ttk.Frame(header)
+        brand.pack(side="left")
+        ttk.Label(
+            brand,
+            text="PIXEL   /   LAB",
+            foreground=ACCENT_COLOR,
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w")
+        ttk.Label(
+            brand,
+            text="Maze Runner",
+            foreground="#f4f7ff",
+            font=("Segoe UI Semibold", 25),
+        ).pack(anchor="w", pady=(1, 0))
+        ttk.Label(
+            brand,
+            text="Lieli nejauši labirinti un īstas sacīkstes līdz četriem spēlētājiem.",
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(2, 0))
+        self.header_maze_info = tk.StringVar()
+        ttk.Label(
+            header,
+            textvariable=self.header_maze_info,
+            foreground=ACCENT_COLOR,
+            font=("Segoe UI Semibold", 10),
+        ).pack(side="right", anchor="ne", pady=(8, 0))
+
+        controls = ttk.Frame(root, style="Card.TFrame", padding=(18, 14))
+        controls.pack(fill="x", padx=28, pady=(4, 14))
+        ttk.Label(controls, text="LABIRINTS", style="CardTitle.TLabel").pack(side="left", padx=(0, 10))
+
+        first_choice = self.maze_files[0].name
+        self.selected_file = tk.StringVar(value=first_choice)
+        self.maze_menu = ttk.Combobox(
+            controls,
+            textvariable=self.selected_file,
+            values=list(self.maze_choices),
+            state="readonly",
+            width=27,
+        )
+        self.maze_menu.pack(side="left", padx=8)
+        self.maze_menu.bind(
+            "<<ComboboxSelected>>",
+            lambda _: self.load_selected_maze(),
+        )
+
+        self.solve_button = ttk.Button(
+            controls,
+            text="▶   ATRAST CEĻUS",
+            style="Accent.TButton",
+            command=self.solve,
+        )
+        self.solve_button.pack(side="left", padx=(14, 8))
+        self.play_button = ttk.Button(
+            controls,
+            text="Ⅱ   PAUZE",
+            command=self.toggle_animation,
+            state="disabled",
+        )
+        self.play_button.pack(side="left", padx=4)
+        ttk.Label(controls, text="MARŠRUTS", style="CardTitle.TLabel").pack(side="left", padx=(10, 4))
+        self.route_menu = ttk.Combobox(controls, state="disabled", width=18)
+        self.route_menu.pack(side="left", padx=4)
+        self.route_menu.bind("<<ComboboxSelected>>", lambda _: self.select_route())
+        ttk.Label(controls, text="ĀTRUMS", style="CardTitle.TLabel").pack(side="left", padx=(12, 4))
+        self.animation_speed = tk.DoubleVar(value=1.0)
+        self.speed_slider = ttk.Scale(
+            controls,
+            from_=0.5,
+            to=3.0,
+            variable=self.animation_speed,
+            orient="horizontal",
+            length=120,
+            command=self.update_speed_label,
+        )
+        self.speed_slider.pack(side="left", padx=5)
+        self.speed_label = ttk.Label(controls, text="1.0×", style="CardTitle.TLabel", width=5)
+        self.speed_label.pack(side="left")
+        ttk.Label(controls, text="SPĒLĒTĀJI", style="CardTitle.TLabel").pack(side="left", padx=(12, 4))
+        self.player_count = tk.StringVar(value="2")
+        self.player_menu = ttk.Combobox(
+            controls,
+            textvariable=self.player_count,
+            values=("2", "3", "4"),
+            state="readonly",
+            width=3,
+        )
+        self.player_menu.pack(side="left", padx=4)
+        self.race_button = ttk.Button(
+            controls,
+            text="🏁   SĀKT SACENSĪBU",
+            style="Accent.TButton",
+            command=self.start_race,
+        )
+        self.race_button.pack(side="left", padx=(8, 0))
+        ttk.Button(controls, text="↺   ATIESTATĪT", command=self.reset).pack(side="right", padx=(8, 0))
+
+        view_card = ttk.Frame(root, style="Card.TFrame", padding=12)
+        view_card.pack(fill="both", expand=True, padx=28, pady=(0, 12))
+        self.canvas = tk.Canvas(
+            view_card,
+            bg=FLOOR_COLOR,
+            highlightthickness=1,
+            highlightbackground="#1d2a41",
+            width=1200,
+            height=720,
+        )
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        view_card.rowconfigure(0, weight=1)
+        view_card.columnconfigure(0, weight=1)
+        self.canvas.bind("<Configure>", self.schedule_redraw)
+        self.root.bind("<space>", lambda _: self.toggle_animation())
+        self.root.bind_all("<KeyPress>", self.handle_player_key)
+
+        footer = ttk.Frame(root, padding=(28, 0, 28, 18))
         footer.pack(fill="x")
-        ttk.Label(footer, textvariable=self.status, style="Muted.TLabel").pack(side="left")
-        ttk.Label(footer, textvariable=self.hint, style="Muted.TLabel").pack(side="right")
+        self.status = tk.StringVar(value="Izvēlies labirintu un atrodi ceļus.")
+        ttk.Label(footer, textvariable=self.status, foreground="#e6edf7").pack(side="left")
+        self.route_info = tk.StringVar(value="1: ↑←↓→    2: W A S D    3: I J K L    4: T F G H")
+        ttk.Label(
+            footer,
+            textvariable=self.route_info,
+            foreground="#8d9bb2",
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="right")
 
-    def end_edit(self):
-        self.edit.set(False)
-        self.edit_changed()
+        self.load_selected_maze()
 
-    def set_maze(self, maze, source=None):
-        self.pause()
-        self.maze = list(maze)
-        self.source = source
-        self.dirty = False
-        self.edit.set(False)
-        self.editor_bar.pack_forget()
-        self.reset()
-
-    def load(self, file):
+    def load_selected_maze(self) -> None:
+        self.cancel_animation()
         try:
-            self.set_maze(read_maze(file), Path(file))
-        except (OSError, UnicodeError, ValueError) as error:
-            messagebox.showerror("Could not open maze", str(error), parent=self.root)
-
-    def discard_changes(self):
-        return not self.dirty or messagebox.askyesno("Unsaved maze", "Discard your unsaved maze changes?", parent=self.root)
-
-    def open_file(self):
-        self.pause()
-        if not self.discard_changes():
-            return
-        file = filedialog.askopenfilename(parent=self.root, initialdir=Path(__file__).parent,
-                                          filetypes=[("Text mazes", "*.txt")])
-        if file:
-            self.load(file)
-
-    def generate(self):
-        if not self.discard_changes():
-            return
-        rows, columns = map(int, self.size.get().split(" × "))
-        self.set_maze(generate_maze(rows, columns, self.loops.get()))
-        self.dirty = True
-        self.update_caption()
-
-    def update_caption(self):
-        if self.maze:
-            name = self.source.name if self.source else "Generated maze"
-            self.file_label.set(f"{name}{' *' if self.dirty else ''}   ·   {len(self.maze)} × {len(self.maze[0])}")
-
-    def save_maze(self):
-        if not self.maze:
-            return
-        self.pause()
-        file = filedialog.asksaveasfilename(parent=self.root, defaultextension=".txt",
-                                            initialfile="my_maze.txt", filetypes=[("Text maze", "*.txt")])
-        if file:
-            try:
-                Path(file).write_text("\n".join(self.maze) + "\n", encoding="utf-8")
-                self.source = Path(file)
-                self.dirty = False
-                self.update_caption()
-                self.status.set("Maze saved")
-            except OSError as error:
-                messagebox.showerror("Save failed", str(error), parent=self.root)
-
-    def export_path(self):
-        if not self.maze or self.edit.get():
-            return
-        self.pause()
-        replay = self.replays[self.algorithm.get()]
-        if not replay.path:
-            messagebox.showinfo("No solution", "There is no route from A to B. Edit the maze to connect them.", parent=self.root)
-            return
-        file = filedialog.asksaveasfilename(parent=self.root, defaultextension=".svg",
-                                            initialfile="maze_solution.svg",
-                                            filetypes=[("SVG image", "*.svg"), ("Text solution", "*.txt")])
-        if not file:
-            return
-        if self.source and Path(file).resolve() == self.source.resolve():
-            messagebox.showerror("Choose another file", "Export to a new file to preserve the original maze.", parent=self.root)
-            return
-        try:
-            Path(file).write_text(export_solution(self.maze, replay.path, Path(file).suffix), encoding="utf-8")
-            self.status.set("Solution exported")
-        except OSError as error:
-            messagebox.showerror("Export failed", str(error), parent=self.root)
-
-    def update_results_visibility(self):
-        if self.compare.get() and not self.edit.get():
-            self.results.pack(fill="x", pady=(8, 0))
-        else:
-            self.results.pack_forget()
-
-    def reset(self):
-        self.pause()
-        self.update_results_visibility()
-        if not self.maze:
-            return
-        self.preview_cell = None
-        self.position = 0
-        self.replays = {a: Replay(self.maze, a, self.explore_all.get()) for a in ALGORITHMS}
-        start = self.replays["BFS"].start
-        self.distances = {start: 0}
-        queue = deque([start])
-        while queue:
-            r, c = queue.popleft()
-            for dr, dc in ((0, 1), (1, 0), (0, -1), (-1, 0)):
-                cell = nr, nc = r + dr, c + dc
-                if (0 <= nr < len(self.maze) and 0 <= nc < len(self.maze[0])
-                        and self.maze[nr][nc] != "#" and cell not in self.distances):
-                    self.distances[cell] = self.distances[r, c] + 1
-                    queue.append(cell)
-        self.max_distance = max(1, max(self.distances.values()))
-        self.results.delete(*self.results.get_children())
-        for a, replay in self.replays.items():
-            self.results.insert("", "end", values=(a, len(replay.path) - 1 if replay.path else "No route",
-                                                       replay.total_visited, replay.peak_frontier, f"{replay.elapsed_ms:.2f}"))
-        self.timeline.configure(to=max(1, self.duration()))
-        self.update_caption()
-        self.draw()
-        self.seek(0)
-
-    def duration(self):
-        if not self.replays:
-            return 0
-        if self.compare.get():
-            return max(replay.length for replay in self.replays.values())
-        return self.replays[self.algorithm.get()].length
-
-    def change_view(self):
-        self.pause()
-        self.update_results_visibility()
-        self.position = min(self.position, self.duration())
-        self.timeline.configure(to=max(1, self.duration()))
-        self.draw()
-        self.seek(self.position)
-
-    def pause(self):
-        self.running = False
-        if self.timer is not None:
-            self.root.after_cancel(self.timer)
-            self.timer = None
-        self.play_button.configure(text="Play")
-
-    def toggle(self):
-        if self.edit.get() or not self.replays:
-            return
-        if self.running:
-            self.pause()
-        else:
-            if self.position >= self.duration():
-                self.seek(0)
-            self.running = True
-            self.play_button.configure(text="Pause")
-            self.tick()
-
-    def on_space(self, event):
-        if isinstance(self.root.focus_get(), ttk.Combobox):
-            return
-        self.toggle()
-        return "break"
-
-    def tick(self):
-        self.timer = None
-        self.seek(self.position + max(1, round(self.speed.get() / 30)))
-        if self.position >= self.duration():
-            self.pause()
-        elif self.running:
-            self.timer = self.root.after(max(16, int(1000 / min(30, self.speed.get()))), self.tick)
-
-    def seek(self, value):
-        if not self.replays or self.edit.get():
-            return
-        self.position = max(0, min(int(float(value)), self.duration()))
-        for replay in self.replays.values():
-            replay.seek(self.position)
-        self._setting_timeline = True
-        self.timeline.set(self.position)
-        self._setting_timeline = False
-        replay = self.replays[self.algorithm.get()]
-        if self.position >= self.duration():
-            self.status.set(f"{len(replay.path)-1} steps · {len(replay.visited)} visited" if replay.path else "No path found")
-        elif self.position >= len(replay.frames):
-            self.status.set("Tracing the solution")
-        else:
-            self.status.set(f"{len(replay.visited)} visited" if self.position else "Ready")
-        self.paint()
-
-    def scrub(self, value):
-        if getattr(self, "_setting_timeline", False):
-            return
-        self.pause()
-        self.seek(value)
-
-    def rewind(self):
-        self.pause()
-        self.preview_cell = None
-        self.seek(0)
-
-    def step(self, direction):
-        self.pause()
-        self.seek(self.position + direction)
-
-    def finish(self):
-        self.pause()
-        self.seek(self.duration())
-
-    def draw(self):
-        self.canvas.delete("all")
-        self.boards = []
-        if not self.maze:
-            return
-        algorithms = list(ALGORITHMS) if self.compare.get() and not self.edit.get() else [self.algorithm.get()]
-        width, height = self.canvas.winfo_width(), self.canvas.winfo_height()
-        rows, cols = len(self.maze), len(self.maze[0])
-        for index, algorithm in enumerate(algorithms):
-            panel_width = width / len(algorithms)
-            top = 43 if len(algorithms) > 1 else 16
-            size = min((panel_width - 24) / cols, (height - top - 16) / rows)
-            if size <= 0:
-                continue
-            x0 = index * panel_width + (panel_width - cols * size) / 2
-            y0 = top + (height - top - 16 - rows * size) / 2
-            if len(algorithms) > 1:
-                self.canvas.create_text(index * panel_width + 14, 20, anchor="w", text=algorithm,
-                                        fill=MUTED, font=("Helvetica", 11))
-            rectangles = {}
-            for r, row in enumerate(self.maze):
-                for c, value in enumerate(row):
-                    x, y = x0 + c * size, y0 + r * size
-                    rectangles[r, c] = self.canvas.create_rectangle(x, y, x + size, y + size,
-                                                                                width=0, fill=COLORS["floor"])
-                    if value in "AB" and size >= 9:
-                        self.canvas.create_text(x + size / 2, y + size / 2, text=value, fill="#ffffff",
-                                                font=("Helvetica", max(7, int(size * .53)), "bold"))
-            self.boards.append((algorithm, rectangles, x0, y0, size))
-        self.paint()
-
-    def paint(self):
-        for algorithm, rectangles, *_ in self.boards:
-            replay = self.replays.get(algorithm)
-            preview = set()
-            if replay and not self.edit.get() and self.preview_cell in replay.parents:
-                preview = set(replay.route_to(self.preview_cell))
-            for cell, rectangle in rectangles.items():
-                r, c = cell
-                value = self.maze[r][c]
-                color = COLORS["wall" if value == "#" else "floor"]
-                if replay and not self.edit.get():
-                    if cell in replay.visited:
-                        color = COLORS["visited"]
-                        if self.heatmap.get():
-                            t = self.distances.get(cell, 0) / self.max_distance
-                            color = f"#{int(178 - 100*t):02x}{int(215 - 85*t):02x}{int(246 - 35*t):02x}"
-                    if cell in replay.frontier:
-                        color = COLORS["frontier"]
-                    if cell == replay.current:
-                        color = COLORS["current"]
-                    if cell in replay.visible_path:
-                        color = COLORS["path"]
-                    if cell in preview:
-                        color = COLORS["preview"]
-                if value == "A":
-                    color = COLORS["start"]
-                elif value == "B":
-                    color = COLORS["finish"]
-                self.canvas.itemconfigure(rectangle, fill=color)
-
-    def cell_at(self, event):
-        for algorithm, _, x, y, size in self.boards:
-            r, c = int((event.y - y) // size), int((event.x - x) // size)
-            if 0 <= r < len(self.maze) and 0 <= c < len(self.maze[0]):
-                return algorithm, (r, c)
-        return None, None
-
-    def canvas_click(self, event):
-        algorithm, cell = self.cell_at(event)
-        if cell is None:
-            return
-        if self.edit.get():
-            self.painting = True
-            self.last_cell = cell
-            self.edit_cell(cell)
-        else:
-            replay = self.replays[algorithm]
-            self.preview_cell = cell if cell in replay.parents else None
-            if self.preview_cell:
-                distance = len(replay.route_to(cell)) - 1
-                self.hint.set(f"{algorithm} · row {cell[0]+1}, col {cell[1]+1} · {distance} steps from A")
+            choice = self.selected_file.get()
+            file_path = self.maze_choices[choice]
+            if file_path is None:
+                dimensions = (61, 121) if choice.startswith("MILZĪGAIS") else (41, 81)
+                self.maze, self.start, self.goal = generate_maze(*dimensions)
+                maze_name = choice.split("  ·")[0]
             else:
-                self.hint.set("Click a visited cell to inspect its path.")
-            self.paint()
-
-    def edit_changed(self):
-        self.pause()
-        self.preview_cell = None
-        if self.edit.get():
-            self.editor_bar.pack(fill="x", before=self.content)
-            self.update_results_visibility()
-            self.status.set("Editing")
-            self.hint.set("Save your changes from the File menu.")
-            self.draw()
-        else:
-            self.editor_bar.pack_forget()
-            self.hint.set("Click a visited cell to inspect its path.")
-            self.reset()
-
-    def edit_cell(self, cell):
-        r, c = cell
-        tool = self.tool.get()
-        if tool in ("Wall", "Eraser") and self.maze[r][c] in "AB":
+                self.maze, self.start, self.goal = read_maze(file_path)
+                maze_name = file_path.stem.upper()
+        except (OSError, ValueError, KeyError) as error:
+            messagebox.showerror("Nevar atvērt labirintu", str(error))
             return
-        grid = [list(row) for row in self.maze]
-        if tool in ("Start A", "Goal B"):
-            marker = "A" if tool == "Start A" else "B"
-            if grid[r][c] in "AB":
-                return
-            for row in grid:
-                for i, value in enumerate(row):
-                    if value == marker:
-                        row[i] = " "
-            grid[r][c] = marker
-        else:
-            grid[r][c] = "#" if tool == "Wall" else " "
-        self.maze = ["".join(row) for row in grid]
-        self.dirty = True
-        self.update_caption()
-        if tool in ("Start A", "Goal B"):
-            self.draw()
-        else:
-            self.paint()
 
-    def canvas_drag(self, event):
-        if not self.edit.get() or not self.painting or self.tool.get() not in ("Wall", "Eraser"):
+        self.path = []
+        self.paths = []
+        self.local_players = []
+        self.game_active = False
+        self.route_menu.configure(values=(), state="disabled")
+        self.player_items.clear()
+        self.ghost_items.clear()
+        self.dot_items.clear()
+        self.status.set("Izvēlies labirintu un atrodi ceļus.")
+        self.header_maze_info.set(
+            f"{len(self.maze[0])} × {len(self.maze)}   /   {maze_name}"
+        )
+        self.route_info.set("1: ↑←↓→    2: W A S D    3: I J K L    4: T F G H")
+        self.draw_maze()
+
+    def schedule_redraw(self, _: tk.Event) -> None:
+        if self.resize_id is not None:
+            self.root.after_cancel(self.resize_id)
+        self.resize_id = self.root.after(120, self.redraw_after_resize)
+
+    def redraw_after_resize(self) -> None:
+        self.resize_id = None
+        if self.maze:
+            self.draw_maze()
+
+    def update_speed_label(self, _: str) -> None:
+        self.speed_label.configure(text=f"{self.animation_speed.get():.1f}×")
+        if self.is_animating and self.path:
+            self.animation_started = time.perf_counter() - (
+                self.animation_progress * 0.16 / self.animation_speed.get()
+            )
+
+    def draw_maze(self) -> None:
+        self.canvas.delete("all")
+        self.cell_rectangles.clear()
+        self.dot_items.clear()
+        self.player_items.clear()
+        self.ghost_items.clear()
+        for player in self.local_players:
+            player.sprite_items = (0, 0)
+        self.cell_size = max(
+            MIN_CELL_SIZE,
+            min(
+                MAX_CELL_SIZE,
+                (max(self.canvas.winfo_width(), 1) - 48) // len(self.maze[0]),
+                (max(self.canvas.winfo_height(), 1) - 48) // len(self.maze),
+            ),
+        )
+        height = len(self.maze) * self.cell_size
+        width = len(self.maze[0]) * self.cell_size
+        self.maze_offset_x = max(12, (self.canvas.winfo_width() - width) // 2)
+        self.maze_offset_y = max(12, (self.canvas.winfo_height() - height) // 2)
+        self.canvas.configure(scrollregion=(0, 0, width, height))
+
+        for y, row in enumerate(self.maze):
+            for x, cell in enumerate(row):
+                left = self.maze_offset_x + x * self.cell_size
+                top = self.maze_offset_y + y * self.cell_size
+                rectangle = self.canvas.create_rectangle(
+                    left, top, left + self.cell_size, top + self.cell_size,
+                    fill=WALL_COLOR if cell == "#" else FLOOR_COLOR,
+                    outline="#18233a",
+                )
+                self.cell_rectangles[(y, x)] = rectangle
+                if cell == "#":
+                    inset = max(2, self.cell_size // 8)
+                    self.canvas.create_rectangle(
+                        left + inset,
+                        top + inset,
+                        left + self.cell_size - inset,
+                        top + self.cell_size - inset,
+                        fill=WALL_TILE_COLOR,
+                        outline="#2a3b5d",
+                        width=max(1, self.cell_size // 24),
+                    )
+                else:
+                    dot = max(1, self.cell_size // 12) if cell not in "AB" else 0
+                    if dot:
+                        center_x = left + self.cell_size / 2
+                        center_y = top + self.cell_size / 2
+                        self.dot_items[(y, x)] = self.canvas.create_oval(
+                            center_x - dot,
+                            center_y - dot,
+                            center_x + dot,
+                            center_y + dot,
+                            fill="#31415d",
+                            outline="",
+                        )
+                if cell in "AB":
+                    center_x = left + self.cell_size / 2
+                    center_y = top + self.cell_size / 2
+                    marker_color = ACCENT_COLOR if cell == "A" else "#fb7185"
+                    radius = max(5, self.cell_size * 0.3)
+                    self.canvas.create_oval(
+                        center_x - radius,
+                        center_y - radius,
+                        center_x + radius,
+                        center_y + radius,
+                        fill="#102c38" if cell == "A" else "#351d32",
+                        outline=marker_color,
+                        width=max(1, self.cell_size // 16),
+                    )
+                    self.canvas.create_text(
+                        center_x,
+                        center_y,
+                        text=cell,
+                        fill=marker_color,
+                        font=("Segoe UI Semibold", max(8, self.cell_size // 3)),
+                    )
+        if self.path:
+            for index in range(self.path_index + 1):
+                cell = self.path[index]
+                if index > 0 and cell in self.cell_rectangles:
+                    self.canvas.itemconfigure(self.cell_rectangles[cell], fill=PATH_COLOR)
+                dot_id = self.dot_items.pop(cell, None)
+                if dot_id is not None:
+                    self.canvas.delete(dot_id)
+            self.create_animation_sprites()
+            self.update_animation_sprites(self.animation_progress)
+        elif self.local_players:
+            for index, player in enumerate(self.local_players):
+                self.draw_local_player(index, player)
+
+    def solve(self) -> None:
+        self.cancel_animation()
+        self.path = []
+        self.draw_maze()
+        self.paths, paths_truncated = find_paths(self.maze, self.start, self.goal)
+        if not self.paths:
+            self.status.set("Ceļš no A līdz B nav atrasts.")
             return
-        _, cell = self.cell_at(event)
-        if cell and self.last_cell:
-            r0, c0 = self.last_cell
-            r1, c1 = cell
-            steps = max(abs(r1-r0), abs(c1-c0), 1)
-            for i in range(1, steps+1):
-                self.edit_cell((round(r0+(r1-r0)*i/steps), round(c0+(c1-c0)*i/steps)))
-        self.last_cell = cell
 
-    def canvas_release(self, event):
-        self.painting = False
-        self.last_cell = None
+        self.route_menu.configure(
+            values=[f"{index + 1}. ({len(path) - 1} soļi)" for index, path in enumerate(self.paths)],
+            state="readonly",
+        )
+        self.route_menu.current(0)
+        route_count_text = f"Atrasti vismaz {len(self.paths)} ceļi" if paths_truncated else f"Atrasti {len(self.paths)} ceļi"
+        self.status.set(f"{route_count_text}; rādu īsāko.")
+        self.select_route()
 
-    def close(self):
-        if self.discard_changes():
-            self.pause()
-            self.root.destroy()
+    def select_route(self) -> None:
+        route_index = self.route_menu.current()
+        if not 0 <= route_index < len(self.paths):
+            return
 
+        self.cancel_animation()
+        self.path = self.paths[route_index]
+        self.draw_maze()
+        self.path_index = 0
+        self.animation_progress = 0.0
+        self.last_animated_index = -1
+        self.animation_started = time.perf_counter()
+        self.is_animating = True
+        self.solve_button.configure(state="disabled")
+        self.play_button.configure(state="normal", text="Ⅱ   PAUZE")
+        self.status.set(
+            f"Maršruts {route_index + 1}/{len(self.paths)}: {len(self.path) - 1} soļi."
+        )
+        self.route_info.set(
+            f"MARŠRUTS {route_index + 1}/{len(self.paths)}     ■     "
+            f"{len(self.path) - 1} SOĻI     ■     0%"
+        )
+        self.animate_frame()
 
-def export_solution(maze, path, suffix):
-    route = set(path)
-    if suffix.lower() != ".svg":
-        return "\n".join("".join("." if (r, c) in route and v == " " else v
-                                  for c, v in enumerate(row)) for r, row in enumerate(maze)) + "\n"
-    size = 20
-    width, height = len(maze[0])*size, len(maze)*size
-    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
-             f'<rect width="100%" height="100%" fill="{COLORS["floor"]}"/>']
-    for r, row in enumerate(maze):
-        for c, value in enumerate(row):
-            key = {"#": "wall", "A": "start", "B": "finish"}.get(value)
-            if key:
-                parts.append(f'<rect x="{c*size}" y="{r*size}" width="{size}" height="{size}" fill="{COLORS[key]}"/>')
-    points = " ".join(f"{c*size+size/2},{r*size+size/2}" for r,c in path)
-    parts.append(f'<polyline points="{points}" fill="none" stroke="{ACCENT}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>')
-    for r, row in enumerate(maze):
-        for c, value in enumerate(row):
-            if value in "AB":
-                parts.append(f'<text x="{c*size+10}" y="{r*size+14}" text-anchor="middle" font-family="sans-serif" font-size="12" fill="white">{value}</text>')
-    return "\n".join(parts + ["</svg>"])
+    def start_race(self) -> None:
+        self.cancel_animation()
+        self.path = []
+        self.paths = []
+        self.route_menu.configure(values=(), state="disabled")
+        self.draw_maze()
 
+        count = int(self.player_count.get())
+        self.local_players = [
+            LocalPlayer(name, color, keys, self.start)
+            for name, color, keys in PLAYER_PRESETS[:count]
+        ]
+        self.game_started_at = time.perf_counter()
+        self.game_active = True
+        self.solve_button.configure(state="normal")
+        self.play_button.configure(state="disabled", text="Ⅱ   PAUZE")
+        self.status.set(
+            f"SACENSĪBA SĀKUSIES! {count} spēlētāji — vadi savu tēlu līdz B."
+        )
+        self.route_info.set("1: BULTIŅAS    2: W A S D    3: I J K L    4: T F G H")
+        for index, player in enumerate(self.local_players):
+            player.sprite_items = (0, 0)
+            self.draw_local_player(index, player)
+        self.root.focus_set()
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("file", nargs="?", type=Path, default=Path(__file__).with_name("maze_25x41.txt"))
-    args = parser.parse_args()
-    root = tk.Tk()
-    MazeWindow(root, args.file)
-    root.mainloop()
+    def draw_local_player(self, index: int, player: LocalPlayer) -> None:
+        y, x = player.position
+        center_x = self.maze_offset_x + (x + 0.5) * self.cell_size
+        center_y = self.maze_offset_y + (y + 0.5) * self.cell_size
+        if player.position == self.start:
+            offsets = ((-0.2, -0.2), (0.2, -0.2), (-0.2, 0.2), (0.2, 0.2))
+            offset_x, offset_y = offsets[index]
+            center_x += offset_x * self.cell_size
+            center_y += offset_y * self.cell_size
+        radius = max(3, self.cell_size * 0.31)
+        body_id, label_id = player.sprite_items
+        if not body_id or not label_id:
+            body_id = self.canvas.create_oval(
+                center_x - radius,
+                center_y - radius,
+                center_x + radius,
+                center_y + radius,
+                fill=player.color,
+                outline="#f8fafc",
+                width=max(1, self.cell_size // 16),
+            )
+            label_id = self.canvas.create_text(
+                center_x,
+                center_y,
+                text=str(index + 1),
+                fill="#111827",
+                font=("Segoe UI Semibold", max(7, self.cell_size // 3)),
+            )
+            player.sprite_items = (body_id, label_id)
+        else:
+            self.canvas.coords(
+                body_id,
+                center_x - radius,
+                center_y - radius,
+                center_x + radius,
+                center_y + radius,
+            )
+            self.canvas.coords(label_id, center_x, center_y)
+        if player.finished:
+            self.canvas.itemconfigure(body_id, outline="#4ade80", width=2)
+
+    def handle_player_key(self, event: tk.Event) -> str | None:
+        if not self.game_active:
+            return None
+
+        key = event.keysym.lower()
+        for index, player in enumerate(self.local_players):
+            direction = player.keys.get(key)
+            if direction is None or player.finished:
+                continue
+            y, x = player.position
+            next_position = (y + direction[0], x + direction[1])
+            if self.maze[next_position[0]][next_position[1]] == "#":
+                return "break"
+
+            player.position = next_position
+            dot_id = self.dot_items.pop(next_position, None)
+            if dot_id is not None:
+                self.canvas.delete(dot_id)
+                player.score += 10
+            if next_position == self.goal:
+                player.finished = True
+                player.finish_time = time.perf_counter() - self.game_started_at
+                player.score += max(0, 500 - int(player.finish_time))
+
+            self.draw_local_player(index, player)
+            self.update_race_status()
+            return "break"
+        return None
+
+    def update_race_status(self) -> None:
+        standings = sorted(
+            self.local_players,
+            key=lambda player: (
+                not player.finished,
+                player.finish_time if player.finish_time is not None else float("inf"),
+                -player.score,
+            ),
+        )
+        summary = "   ".join(
+            f"{player.name.split('.')[0]}: {player.score} pts"
+            for player in standings
+        )
+        finished = [player for player in self.local_players if player.finished]
+        if len(finished) == len(self.local_players):
+            winner = min(finished, key=lambda player: player.finish_time or float("inf"))
+            self.game_active = False
+            self.status.set(f"FINIŠĀ! Uzvar {winner.name} ar {winner.score} punktiem.  {summary}")
+        elif finished:
+            self.status.set(
+                f"{finished[-1].name} sasniedza finišu! Pārējie vēl spēlē.  {summary}"
+            )
+        else:
+            self.status.set(f"SACENSĪBA NOTIEK  ·  savāc punktus un tiec līdz B!  {summary}")
+
+    def create_animation_sprites(self) -> None:
+        size = self.cell_size
+        self.player_items = {
+            "glow": self.canvas.create_oval(0, 0, 0, 0, fill="#453708", outline=""),
+            "body": self.canvas.create_arc(
+                0, 0, 0, 0,
+                start=330,
+                extent=300,
+                style=tk.PIESLICE,
+                fill="#facc15",
+                outline="#fff08a",
+                width=max(1, size // 18),
+            ),
+            "eye": self.canvas.create_oval(0, 0, 0, 0, fill="#111827", outline=""),
+        }
+        ghost_colors = ("#fb7185", "#c084fc", "#38bdf8")
+        self.ghost_items = []
+        for color in ghost_colors:
+            self.ghost_items.append({
+                "body": self.canvas.create_oval(0, 0, 0, 0, fill=color, outline="#f8fafc", width=1),
+                "eye_left": self.canvas.create_oval(0, 0, 0, 0, fill="white", outline=""),
+                "eye_right": self.canvas.create_oval(0, 0, 0, 0, fill="white", outline=""),
+                "pupil_left": self.canvas.create_oval(0, 0, 0, 0, fill="#172033", outline=""),
+                "pupil_right": self.canvas.create_oval(0, 0, 0, 0, fill="#172033", outline=""),
+            })
+
+    def path_position(self, progress: float) -> tuple[float, float]:
+        segment = min(int(progress), len(self.path) - 2)
+        fraction = max(0.0, min(1.0, progress - segment))
+        y1, x1 = self.path[segment]
+        y2, x2 = self.path[min(segment + 1, len(self.path) - 1)]
+        x = self.maze_offset_x + (x1 + (x2 - x1) * fraction + 0.5) * self.cell_size
+        y = self.maze_offset_y + (y1 + (y2 - y1) * fraction + 0.5) * self.cell_size
+        return x, y
+
+    def update_animation_sprites(self, progress: float) -> None:
+        center_x, center_y = self.path_position(progress)
+        radius = max(4, self.cell_size * 0.4)
+        self.canvas.coords(
+            self.player_items["glow"],
+            center_x - radius * 1.45,
+            center_y - radius * 1.45,
+            center_x + radius * 1.45,
+            center_y + radius * 1.45,
+        )
+        self.canvas.coords(
+            self.player_items["body"],
+            center_x - radius,
+            center_y - radius,
+            center_x + radius,
+            center_y + radius,
+        )
+        segment = min(int(progress), len(self.path) - 2)
+        y1, x1 = self.path[segment]
+        y2, x2 = self.path[min(segment + 1, len(self.path) - 1)]
+        direction = 0 if x2 > x1 else 180 if x2 < x1 else 90 if y2 < y1 else 270
+        mouth = 18 + abs(time.perf_counter() * 9 % 1) * 28
+        self.canvas.itemconfigure(
+            self.player_items["body"],
+            start=direction - mouth / 2,
+            extent=360 - mouth,
+        )
+        eye_x = center_x + (radius * 0.25 if direction == 0 else -radius * 0.25 if direction == 180 else 0)
+        eye_y = center_y - radius * 0.35 if direction in (0, 180) else center_y - radius * 0.15
+        eye_radius = max(1.5, self.cell_size * 0.055)
+        self.canvas.coords(
+            self.player_items["eye"],
+            eye_x - eye_radius,
+            eye_y - eye_radius,
+            eye_x + eye_radius,
+            eye_y + eye_radius,
+        )
+
+        ghost_radius = max(3, self.cell_size * 0.24)
+        for index, ghost in enumerate(self.ghost_items, start=1):
+            ghost_progress = progress - index * 3.5
+            visible = ghost_progress >= 0
+            state = "normal" if visible else "hidden"
+            for item in ghost.values():
+                self.canvas.itemconfigure(item, state=state)
+            if not visible:
+                continue
+            ghost_x, ghost_y = self.path_position(ghost_progress)
+            self.canvas.coords(ghost["body"], ghost_x - ghost_radius, ghost_y - ghost_radius,
+                               ghost_x + ghost_radius, ghost_y + ghost_radius)
+            eye_y = ghost_y - ghost_radius * 0.15
+            for eye_name, pupil_name, direction_offset in (
+                ("eye_left", "pupil_left", -0.32),
+                ("eye_right", "pupil_right", 0.32),
+            ):
+                eye_x = ghost_x + direction_offset * ghost_radius
+                eye_size = max(1, ghost_radius * 0.38)
+                self.canvas.coords(ghost[eye_name], eye_x - eye_size, eye_y - eye_size,
+                                   eye_x + eye_size, eye_y + eye_size)
+                pupil_size = max(1, eye_size * 0.38)
+                self.canvas.coords(ghost[pupil_name], eye_x - pupil_size, eye_y - pupil_size,
+                                   eye_x + pupil_size, eye_y + pupil_size)
+
+    def animate_frame(self) -> None:
+        if not self.is_animating or not self.path:
+            return
+        elapsed = time.perf_counter() - self.animation_started
+        step_duration = 0.16 / self.animation_speed.get()
+        self.animation_progress = min(elapsed / step_duration, len(self.path) - 1)
+        self.path_index = int(self.animation_progress)
+
+        for index in range(self.last_animated_index + 1, self.path_index + 1):
+            cell = self.path[index]
+            if index > 0 and cell in self.cell_rectangles:
+                self.canvas.itemconfigure(self.cell_rectangles[cell], fill=PATH_COLOR)
+            dot_id = self.dot_items.pop(cell, None)
+            if dot_id is not None:
+                self.canvas.delete(dot_id)
+        self.last_animated_index = max(self.last_animated_index, self.path_index)
+
+        self.update_animation_sprites(self.animation_progress)
+        percent = int(self.animation_progress / max(1, len(self.path) - 1) * 100)
+        route_index = self.route_menu.current() + 1
+        self.route_info.set(
+            f"MARŠRUTS {route_index}/{len(self.paths)}     ■     "
+            f"{len(self.path) - 1} SOĻI     ■     {percent}%"
+        )
+        if self.animation_progress >= len(self.path) - 1:
+            self.solve_button.configure(state="normal")
+            self.play_button.configure(state="disabled", text="Ⅱ   PAUZE")
+            self.is_animating = False
+            self.animation_id = None
+            self.status.set(
+                f"Pac-Man sasniedza B! Maršruts {self.route_menu.current() + 1}/{len(self.paths)}, "
+                f"{len(self.path) - 1} soļi."
+            )
+            return
+        self.animation_id = self.root.after(16, self.animate_frame)
+
+    def toggle_animation(self) -> None:
+        if not self.path or self.path_index >= len(self.path) - 1:
+            return
+        if self.is_animating:
+            self.is_animating = False
+            if self.animation_id is not None:
+                self.root.after_cancel(self.animation_id)
+                self.animation_id = None
+            self.play_button.configure(text="▶   TURPINĀT")
+            self.status.set("Animācija apturēta. Nospied SPACE vai TURPINĀT.")
+            return
+
+        self.is_animating = True
+        self.animation_started = time.perf_counter() - (
+            self.animation_progress * 0.16 / self.animation_speed.get()
+        )
+        self.play_button.configure(text="Ⅱ   PAUZE")
+        self.animate_frame()
+
+    def reset(self) -> None:
+        self.cancel_animation()
+        self.solve_button.configure(state="normal")
+        self.path = []
+        self.paths = []
+        self.local_players = []
+        self.last_animated_index = -1
+        self.route_menu.configure(values=(), state="disabled")
+        self.is_animating = False
+        self.player_items.clear()
+        self.ghost_items.clear()
+        self.status.set("Izvēlies labirintu un atrodi ceļus.")
+        self.play_button.configure(state="disabled", text="Ⅱ   PAUZE")
+        self.route_info.set("START A   →   FINISH B     ■     FIT-TO-SCREEN")
+        self.draw_maze()
+
+    def cancel_animation(self) -> None:
+        if self.animation_id is not None:
+            self.root.after_cancel(self.animation_id)
+            self.animation_id = None
+        self.is_animating = False
+        self.game_active = False
+        self.local_players = []
+        self.play_button.configure(state="disabled", text="Ⅱ   PAUZE")
+        self.solve_button.configure(state="normal")
 
 
 if __name__ == "__main__":
-    main()
+    root = tk.Tk()
+    MazeVisualizer(root)
+    root.mainloop()
