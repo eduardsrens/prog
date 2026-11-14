@@ -28,6 +28,27 @@ HERE = Path(__file__).resolve().parent
 # Labirintus meklējam blakus programmai un pasniedzēja uzdevuma mapē.
 MAZE_FOLDERS = [HERE, HERE.parent / "#uzdevumi" / "maze"]
 
+# Iebūvētais labirints – lai programma strādā arī tad, ja blakus nav neviena
+# maze_*.txt faila (piemēram, ja to palaiž no mapes Downloads).
+BUILTIN = "iebūvētais labirints"
+BUILTIN_MAZE = [
+    "#########################",
+    "#A  #       #           #",
+    "# # # ##### # ######### #",
+    "# #   #   #   #       # #",
+    "# ##### # ##### ##### # #",
+    "#     # #     #     #   #",
+    "##### # ##### ##### ### #",
+    "#   # #     #     #   # #",
+    "# # # ##### ##### # # # #",
+    "# #       #     #   #   #",
+    "# ####### ##### ####### #",
+    "#       #     #       # #",
+    "# ##### ##### # ##### # #",
+    "#     #       #     #  B#",
+    "#########################",
+]
+
 # Kustības virzieni (rinda, kolonna) un leņķis, uz kuru skatās Pacman mute.
 # Tkinter leņķus skaita pretēji pulksteņrādītājam, sākot no labās puses.
 DIRECTIONS = {
@@ -53,8 +74,10 @@ COLORS = {
 
 def load_maze(path):
     """Nolasa labirintu no faila un pārbauda, vai tas ir pareizs."""
-    text = Path(path).read_text(encoding="utf-8-sig")
-    rows = text.splitlines()
+    if str(path) == BUILTIN:
+        rows = list(BUILTIN_MAZE)
+    else:
+        rows = Path(path).read_text(encoding="utf-8-sig").splitlines()
     while rows and not rows[-1].strip():
         rows.pop()
     check_maze(rows)
@@ -156,7 +179,10 @@ def available_mazes():
         rows, _, cols = item[0].partition(" × ")
         return (int(rows), int(cols)) if rows.isdigit() and cols.isdigit() else (0, 0)
 
-    return dict(sorted(found.items(), key=size))
+    found = dict(sorted(found.items(), key=size))
+    if not found:
+        found["15 × 25"] = BUILTIN
+    return found
 
 
 # ---------------------------------------------------------------- logs
