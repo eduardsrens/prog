@@ -1,24 +1,24 @@
 # Studentu darbu iesniegumi
 
-Šajā repozitorijā apkopoti studentu darbi. Katram studentam jāiesniedz visi viņam paredzētie projekti.
+Šeit apkopoti visu studentu iesniegumi. Katram studentam jāiesniedz visi viņam paredzētie projekti.
 
-**Apzīmējumi:** `X` — šajā repozitorijā atrasta iesnieguma mape; `-` — attiecīgā studenta iesniegums šajā projektā nav atrasts.
+**Apzīmējumi:** `X` — šī studenta darbs ir atrasts repozitorijā; `-` — atbilstošs darbs nav atrasts.
 
-| Students | Blackjack | Labirinti | Piecu rindā |
-|---|:---:|:---:|:---:|
-| Enrijs | - | X | - |
-| Ervīns | X | - | - |
-| Gundars Vaivads | - | X | X |
-| Kristers Kalniņš | - | X | X |
-| Martins | - | X | - |
-| Nikita Kotovs | - | - | X |
-| Pauls | X | X | X |
-| Pēteris Puniņš | - | X | X |
-| Sabīne | - | X | - |
-| Valters K. | - | X | - |
+| GitHub lietotājs | Blackjack | Dzīves spēle | Labirinti | Piecu rindā |
+|---|:---:|:---:|:---:|:---:|
+| [meridian2016](https://github.com/meridian2016) (Martins Vaivods) | X | X | X | - |
+| [pteris-biz](https://github.com/pteris-biz) (Pēteris Puniņš) | X | - | X | X |
+| [EgyptPhantom](https://github.com/EgyptPhantom) (Pauls Niklavs) | X | - | X | X |
+| [Barmennk](https://github.com/Barmennk) (Nikita Kotovs) | - | - | - | X |
+| [erviins64](https://github.com/erviins64) (Ervīns) | X | - | - | - |
+| [kristersk25](https://github.com/kristersk25) (Kristers Kalniņš) | - | - | X | X |
+| [Guncha361](https://github.com/Guncha361) (Gundars Vaivads) | - | - | X | X |
+| [EnrijsS](https://github.com/EnrijsS) (Enrijs) | - | - | X | - |
+| [emilsaivars-web](https://github.com/emilsaivars-web) (Emīls Aivars) | - | - | - | - |
+| [sabinjev](https://github.com/sabinjev) (Sabīne) | - | - | X | - |
+| [vafuks](https://github.com/vafuks) (Valters) | - | - | X | - |
+| [DarjaLipatova](https://github.com/DarjaLipatova) (Darja) | - | - | - | - |
 
-`life/` un `#materiali/` satur darbus, kuriem mapēs nav norādīts konkrēts autors. Labirintu mapē `Nezinams` ir arī neidentificēta autora darbs. Testa boti un `Test1`–`Test4` nav uzskaitīti kā studenti.
+Pārskats atspoguļo šajā repozitorijā atrodamās, studentiem piesaistāmās mapes. `#materiali/` un kopīgais `life/game_of_life.py` fails nav piesaistīti konkrētam studentam.
 
-**Piezīme:** pārskats veidots pēc repozitorijā esošajām mapēm. Bez pilna studentu saraksta nav iespējams noteikt, vai ir arī studenti, kuru darbiem šeit nav mapes.
-
-Pēdējo reizi atjaunināts: **2026-11-27 11:50 (+02:00)**.
+Pēdējo reizi atjaunināts: **2026-11-27 12:02 (+02:00)**.
