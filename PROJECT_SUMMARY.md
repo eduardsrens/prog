@@ -21,6 +21,7 @@
 - `RULES.md` apraksta četru kāršu kavu turnīra nosacījumus, bota funkcijas, likmju un darbību formātu, izmaksas un izpildes laika limitu.
 - `tournament.py` ir Tkinter turnīra programma. Tā atrod apakšmapēs esošos `bot.py`, ielādē botus, izspēlē raundus ar kopīgu kāršu kurpi un attēlo rezultātus.
 - `Pauls/bot.py` ir kompozīciju ņemošs stratēģijas bots: novērtē kāršu varbūtības, dīlera iespējamos rezultātus, gājienus un likmes.
+- `Gundars vaivads/bot.py` izmanto redzēto kāršu sastāvu, lai izvēlētos gājienus un pielāgotu likmes.
 - `test_bot/bot.py` ir apzināti vienkāršs testa bots, kas parasti velk līdz 17 un nelieto dubultošanas vai dalīšanas darbības.
 
 ### `life/` — Conway's Game of Life
